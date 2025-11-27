@@ -84,7 +84,7 @@ import TubesCursor from "https://cdn.jsdelivr.net/npm/threejs-components@0.0.19/
 let accessToken = null;
 let player = null;
 
-const CLIENT_ID = "REPLACE_WITH_YOUR_CLIENT_ID";  // <-- insert your ID
+const CLIENT_ID = "d48f2a5c8df746db9d8a75b1edad2a71";  // <-- insert your ID
 const REDIRECT_URI = window.location.href;
 
 window.onSpotifyWebPlaybackSDKReady = () => {};
@@ -191,8 +191,9 @@ window.addEventListener("DOMContentLoaded", () => {
 <div id="app">
   <canvas id="canvas"></canvas>
   <div class="hero">
-    <h1>Tubes</h1>
-    <h2>Cursor</h2>
+    <h1>Spotify</h1>
+    <h2>Musical Cursor</h2>
+    <a target="_blank" href="https://github.com/zen-dts/spoti-cursor">Designed by Luminesco</a>
 
     <button id="connect">Connect Spotify</button>
     <button id="play" disabled>Play Song</button>
