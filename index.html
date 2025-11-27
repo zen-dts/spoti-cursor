@@ -1,97 +1,165 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Spotify Reactive Tubes Cursor</title>
 
 <style>
-  body, html, #app {
-    margin: 0;
-    width: 100%;
-    height: 100%;
-  }
-
-  body { touch-action: none; }
-
-  #app {
-    height: 100%;
-    font-family: "Montserrat", serif;
-  }
-
-  #app a {
-    text-decoration: none;
-    color: #fff;
-  }
-
+  body, html, #app { margin: 0; width: 100%; height: 100%; }
+  body { touch-action: none; background: black; }
+  #app { height: 100%; font-family: "Montserrat", serif; }
   .hero {
-    position: relative;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
+    position: relative; height: 100%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px;
+    pointer-events: none;
   }
-
-  h1, h2, p {
-    margin: 0;
-    padding: 0;
-    color: white;
-    text-shadow: 0 0 20px rgba(0, 0, 0, 1);
-    line-height: 100%;
-    user-select: none;
-  }
-
+  h1, h2 { color: white; text-shadow: 0 0 20px black; margin: 0; pointer-events: auto; }
   h1 { font-size: 80px; font-weight: 700; text-transform: uppercase; }
   h2 { font-size: 60px; font-weight: 500; text-transform: uppercase; }
-
   #canvas {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     overflow: hidden;
   }
-
   button {
+    pointer-events: auto;
     padding: 12px 26px;
     background: rgba(255,255,255,0.15);
     border: 1px solid rgba(255,255,255,0.3);
     border-radius: 8px;
-    color: #fff;
-    font-size: 16px;
-    cursor: pointer;
-    backdrop-filter: blur(10px);
-    transition: 0.2s;
+    color: #fff; font-size: 16px;
+    cursor: pointer; backdrop-filter: blur(10px);
   }
-
-  button:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-
-  button:hover:not(:disabled) {
-    background: rgba(255,255,255,0.3);
-  }
+  button:disabled { opacity: 0.3; cursor: not-allowed; }
+  button:hover:not(:disabled) { background: rgba(255,255,255,0.3); }
 </style>
 
-<!-- Spotify SDK -->
 <script src="https://sdk.scdn.co/spotify-player.js"></script>
 
-<!-- ThreeJS TubesCursor -->
 <script type="module">
 import TubesCursor from "https://cdn.jsdelivr.net/npm/threejs-components@0.0.19/build/cursors/tubes1.min.js";
 
+/* -----------------------------------------------------
+   1. Global variables
+----------------------------------------------------- */
 let accessToken = null;
 let player = null;
+let spotifyDeviceId = null;
 
-const CLIENT_ID = "d48f2a5c8df746db9d8a75b1edad2a71";  // <-- insert your ID
-const REDIRECT_URI = window.location.href;
+const CLIENT_ID = "d48f2a5c8df746db9d8a75b1edad2a71";
+const REDIRECT_URI = "https://spoti-cursor.vercel.app/";
 
-window.onSpotifyWebPlaybackSDKReady = () => {};
+/* -----------------------------------------------------
+   2. PKCE Helper functions
+----------------------------------------------------- */
+async function generateCodeVerifier(len) {
+  let text = "";
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  for (let i = 0; i < len; i++) text += chars[Math.floor(Math.random() * chars.length)];
+  return text;
+}
 
-window.addEventListener("DOMContentLoaded", () => {
+async function generateCodeChallenge(verifier) {
+  const data = new TextEncoder().encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/* -----------------------------------------------------
+   3. Redirect to Spotify login
+----------------------------------------------------- */
+async function redirectToSpotifyAuth() {
+  const verifier = await generateCodeVerifier(128);
+  const challenge = await generateCodeChallenge(verifier);
+
+  localStorage.setItem("pkce_verifier", verifier);
+
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    response_type: "code",
+    redirect_uri: REDIRECT_URI,
+    code_challenge_method: "S256",
+    code_challenge: challenge,
+    scope: "streaming user-read-email user-read-private"
+  });
+
+  window.location = "https://accounts.spotify.com/authorize?" + params.toString();
+}
+
+/* -----------------------------------------------------
+   4. Exchange code → token
+----------------------------------------------------- */
+async function getAccessToken(code) {
+  const verifier = localStorage.getItem("pkce_verifier");
+
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    grant_type: "authorization_code",
+    code: code,
+    redirect_uri: REDIRECT_URI,
+    code_verifier: verifier
+  });
+
+  const res = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params
+  });
+
+  return await res.json();
+}
+
+/* -----------------------------------------------------
+   5. Handle return from Spotify login
+----------------------------------------------------- */
+async function handleSpotifyReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get("code");
+
+  if (!code) return;
+
+  const data = await getAccessToken(code);
+  accessToken = data.access_token;
+
+  console.log("✔ Access Token:", accessToken);
+
+  document.getElementById("connect").disabled = true;
+  document.getElementById("play").disabled = false;
+
+  // cleanup URL
+  window.history.replaceState({}, document.title, REDIRECT_URI);
+}
+
+/* -----------------------------------------------------
+   6. Initialize Spotify Player
+----------------------------------------------------- */
+window.onSpotifyWebPlaybackSDKReady = () => {
+  console.log("Spotify SDK Ready");
+
+  player = new Spotify.Player({
+    name: "Tubes Musical Cursor",
+    getOAuthToken: cb => cb(accessToken),
+    volume: 0.8
+  });
+
+  player.addListener("ready", ({ device_id }) => {
+    console.log("Ready with Device ID", device_id);
+    spotifyDeviceId = device_id;
+  });
+
+  player.connect();
+};
+
+/* -----------------------------------------------------
+   7. App Logic
+----------------------------------------------------- */
+window.addEventListener("DOMContentLoaded", async () => {
+  await handleSpotifyReturn();
+
+  // Tubes Cursor Init
   const canvas = document.getElementById("canvas");
-
   const app = TubesCursor(canvas, {
     tubes: {
       colors: ["#f967fb", "#53bc28", "#6958d5"],
@@ -102,69 +170,53 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Buttons
   const connectBtn = document.getElementById("connect");
   const playBtn = document.getElementById("play");
 
-  connectBtn.onclick = () => {
-    const scope = "streaming user-read-email user-read-private";
-    const authUrl = 
-      `https://accounts.spotify.com/authorize?response_type=token` +
-      `&client_id=${CLIENT_ID}` +
-      `&scope=${encodeURIComponent(scope)}` +
-      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+  connectBtn.onclick = redirectToSpotifyAuth;
 
-    window.location = authUrl;
-  };
+  playBtn.onclick = async () => {
+    if (!spotifyDeviceId) return alert("Device not ready yet.");
 
-  if (window.location.hash.includes("access_token")) {
-    accessToken = window.location.hash.split("=")[1].split("&")[0];
-    connectBtn.disabled = true;
-    playBtn.disabled = false;
-  }
-
-  window.onSpotifyWebPlaybackSDKReady = () => {
-    player = new Spotify.Player({
-      name: "TubesCursorPlayer",
-      getOAuthToken: cb => cb(accessToken),
-      volume: 0.7
+    await fetch("https://api.spotify.com/v1/me/player/play?device_id=" + spotifyDeviceId, {
+      method: "PUT",
+      headers: {
+        Authorization: "Bearer " + accessToken,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        uris: ["spotify:track:1Iq8oo9XkmmvCe2zCH8asQ"]
+      })
     });
 
-    player.connect();
-
-    playBtn.onclick = async () => {
-      await fetch("https://api.spotify.com/v1/me/player/play", {
-        method: "PUT",
-        body: JSON.stringify({
-          uris: ["spotify:track:1Iq8oo9XkmmvCe2zCH8asQ"]
-        }),
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`
-        }
-      });
-
-      startAudio();
-    };
+    startAudioReactive(app);
   };
+});
 
-  let audioCtx, analyser, freqData;
+/* -----------------------------------------------------
+   8. Audio → Cursor Visuals
+----------------------------------------------------- */
+let audioCtx, analyser, freqData;
 
-  function startAudio() {
-    if (audioCtx) return;
+function startAudioReactive(app) {
+  audioCtx = new AudioContext();
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 1024;
+  freqData = new Uint8Array(analyser.frequencyBinCount);
 
-    audioCtx = new AudioContext();
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 1024;
-
-    freqData = new Uint8Array(analyser.frequencyBinCount);
-
+  // Wait for Spotify's hidden audio element
+  const wait = setInterval(() => {
     const audio = document.querySelector("audio");
-    const source = audioCtx.createMediaElementSource(audio);
-    source.connect(analyser);
+    if (!audio) return;
+
+    clearInterval(wait);
+    const src = audioCtx.createMediaElementSource(audio);
+    src.connect(analyser);
     analyser.connect(audioCtx.destination);
 
     animate();
-  }
+  }, 200);
 
   function animate() {
     requestAnimationFrame(animate);
@@ -175,16 +227,15 @@ window.addEventListener("DOMContentLoaded", () => {
     const highs = avg(freqData.slice(200, 512));
 
     app.tubes.setSize(1 + bass * 0.01);
-    app.tubes.setSpeed(0.5 + mids * 0.005);
-    app.tubes.setLightsIntensity(100 + highs);
+    app.tubes.setSpeed(0.6 + mids * 0.005);
+    app.tubes.setLightsIntensity(150 + highs);
   }
+}
 
-  function avg(arr) {
-    return arr.reduce((a, b) => a + b, 0) / arr.length;
-  }
-});
+function avg(arr) {
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
 </script>
-
 </head>
 <body>
 
