@@ -129,7 +129,7 @@ async function redirectToSpotifyAuth() {
     redirect_uri: REDIRECT_URI,
     code_challenge_method: "S256",
     code_challenge: challenge,
-    scope: "user-read-email user-read-private streaming"
+    scope: "streaming user-read-email user-read-private user-modify-playback-state"
   });
 
   window.location = "https://accounts.spotify.com/authorize?" + params.toString();
@@ -239,25 +239,40 @@ window.addEventListener("DOMContentLoaded", async () => {
   connectBtn.onclick = redirectToSpotifyAuth;
 
   playBtn.onclick = async () => {
-    if (!accessToken) return alert("No access token yet.");
-    if (!spotifyDeviceId) return alert("Player not ready, try again.");
+  if (!accessToken) return alert("No access token yet.");
+  if (!spotifyDeviceId) return alert("Player not ready. Try again.");
 
-    await fetch(
-      "https://api.spotify.com/v1/me/player/play?device_id=" + spotifyDeviceId,
-      {
-        method: "PUT",
-        headers: {
-          Authorization: "Bearer " + accessToken,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          uris: ["spotify:track:1Iq8oo9XkmmvCe2zCH8asQ"]
-        })
-      }
-    );
+  // NEW: Transfer playback to this device
+  await fetch("https://api.spotify.com/v1/me/player", {
+    method: "PUT",
+    headers: { 
+      Authorization: "Bearer " + accessToken,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      device_ids: [spotifyDeviceId],
+      play: false
+    })
+  });
 
-    startAudioReactive(app);
-  };
+  // NOW play the track
+  await fetch(
+    "https://api.spotify.com/v1/me/player/play?device_id=" + spotifyDeviceId,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: "Bearer " + accessToken,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        uris: ["spotify:track:1Iq8oo9XkmmvCe2zCH8asQ"]
+      })
+    }
+  );
+
+  startAudioReactive(app);
+};
+
 });
 
 /*****************************************************
