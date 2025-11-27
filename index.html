@@ -9,30 +9,76 @@
   body, html, #app { margin: 0; width: 100%; height: 100%; }
   body { touch-action: none; background: black; }
   #app { height: 100%; font-family: "Montserrat", serif; }
+
   .hero {
-    position: relative; height: 100%;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 10px;
+    position: relative;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
     pointer-events: none;
+    text-align: center;
   }
-  h1, h2 { color: white; text-shadow: 0 0 20px black; margin: 0; pointer-events: auto; }
+
+  h1, h2 {
+    margin: 0;
+    padding: 0;
+    color: white;
+    text-shadow: 0 0 20px rgba(0,0,0,1);
+    pointer-events: auto;
+    user-select: none;
+  }
+
   h1 { font-size: 80px; font-weight: 700; text-transform: uppercase; }
-  h2 { font-size: 60px; font-weight: 500; text-transform: uppercase; }
+  h2 { font-size: 50px; font-weight: 500; text-transform: uppercase; }
+
   #canvas {
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
     overflow: hidden;
   }
+
   button {
     pointer-events: auto;
     padding: 12px 26px;
     background: rgba(255,255,255,0.15);
     border: 1px solid rgba(255,255,255,0.3);
     border-radius: 8px;
-    color: #fff; font-size: 16px;
-    cursor: pointer; backdrop-filter: blur(10px);
+    color: #fff;
+    font-size: 16px;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    transition: .2s;
   }
+
   button:disabled { opacity: 0.3; cursor: not-allowed; }
   button:hover:not(:disabled) { background: rgba(255,255,255,0.3); }
+
+  /* Fix link color always white */
+  .hero a:link,
+  .hero a:visited,
+  .hero a:hover,
+  .hero a:active {
+    color: #fff;
+    text-decoration: none;
+    pointer-events: auto;
+  }
+
+  /* Profile picture in top-right */
+  #profile {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    position: fixed;
+    top: 15px;
+    right: 15px;
+    border: 2px solid white;
+    object-fit: cover;
+    display: none;
+    z-index: 1000;
+  }
 </style>
 
 <script src="https://sdk.scdn.co/spotify-player.js"></script>
@@ -40,9 +86,9 @@
 <script type="module">
 import TubesCursor from "https://cdn.jsdelivr.net/npm/threejs-components@0.0.19/build/cursors/tubes1.min.js";
 
-/* -----------------------------------------------------
-   1. Global variables
------------------------------------------------------ */
+/*****************************************************
+ * 1. GLOBAL VARIABLES
+ *****************************************************/
 let accessToken = null;
 let player = null;
 let spotifyDeviceId = null;
@@ -50,13 +96,15 @@ let spotifyDeviceId = null;
 const CLIENT_ID = "d48f2a5c8df746db9d8a75b1edad2a71";
 const REDIRECT_URI = "https://spoti-cursor.vercel.app/";
 
-/* -----------------------------------------------------
-   2. PKCE Helper functions
------------------------------------------------------ */
-async function generateCodeVerifier(len) {
+/*****************************************************
+ * 2. PKCE HELPERS
+ *****************************************************/
+async function generateCodeVerifier(length) {
   let text = "";
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  for (let i = 0; i < len; i++) text += chars[Math.floor(Math.random() * chars.length)];
+  const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  for (let i = 0; i < length; i++) {
+    text += possible[Math.floor(Math.random() * possible.length)];
+  }
   return text;
 }
 
@@ -67,13 +115,12 @@ async function generateCodeChallenge(verifier) {
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/* -----------------------------------------------------
-   3. Redirect to Spotify login
------------------------------------------------------ */
+/*****************************************************
+ * 3. REDIRECT TO SPOTIFY AUTH
+ *****************************************************/
 async function redirectToSpotifyAuth() {
   const verifier = await generateCodeVerifier(128);
   const challenge = await generateCodeChallenge(verifier);
-
   localStorage.setItem("pkce_verifier", verifier);
 
   const params = new URLSearchParams({
@@ -82,15 +129,15 @@ async function redirectToSpotifyAuth() {
     redirect_uri: REDIRECT_URI,
     code_challenge_method: "S256",
     code_challenge: challenge,
-    scope: "streaming user-read-email user-read-private"
+    scope: "user-read-email user-read-private streaming"
   });
 
   window.location = "https://accounts.spotify.com/authorize?" + params.toString();
 }
 
-/* -----------------------------------------------------
-   4. Exchange code → token
------------------------------------------------------ */
+/*****************************************************
+ * 4. EXCHANGE CODE → ACCESS TOKEN
+ *****************************************************/
 async function getAccessToken(code) {
   const verifier = localStorage.getItem("pkce_verifier");
 
@@ -111,13 +158,12 @@ async function getAccessToken(code) {
   return await res.json();
 }
 
-/* -----------------------------------------------------
-   5. Handle return from Spotify login
------------------------------------------------------ */
+/*****************************************************
+ * 5. HANDLE RETURN FROM SPOTIFY LOGIN
+ *****************************************************/
 async function handleSpotifyReturn() {
   const params = new URLSearchParams(window.location.search);
   const code = params.get("code");
-
   if (!code) return;
 
   const data = await getAccessToken(code);
@@ -128,13 +174,30 @@ async function handleSpotifyReturn() {
   document.getElementById("connect").disabled = true;
   document.getElementById("play").disabled = false;
 
-  // cleanup URL
+  await loadUserProfile();
+
   window.history.replaceState({}, document.title, REDIRECT_URI);
 }
 
-/* -----------------------------------------------------
-   6. Initialize Spotify Player
------------------------------------------------------ */
+/*****************************************************
+ * 6. LOAD USER’S SPOTIFY PROFILE PICTURE
+ *****************************************************/
+async function loadUserProfile() {
+  const res = await fetch("https://api.spotify.com/v1/me", {
+    headers: { Authorization: "Bearer " + accessToken }
+  });
+  const data = await res.json();
+
+  if (data.images && data.images.length > 0) {
+    const img = document.getElementById("profile");
+    img.src = data.images[0].url;
+    img.style.display = "block";
+  }
+}
+
+/*****************************************************
+ * 7. SPOTIFY PLAYER INIT
+ *****************************************************/
 window.onSpotifyWebPlaybackSDKReady = () => {
   console.log("Spotify SDK Ready");
 
@@ -145,21 +208,21 @@ window.onSpotifyWebPlaybackSDKReady = () => {
   });
 
   player.addListener("ready", ({ device_id }) => {
-    console.log("Ready with Device ID", device_id);
+    console.log("Player ready:", device_id);
     spotifyDeviceId = device_id;
   });
 
   player.connect();
 };
 
-/* -----------------------------------------------------
-   7. App Logic
------------------------------------------------------ */
+/*****************************************************
+ * 8. DOM READY
+ *****************************************************/
 window.addEventListener("DOMContentLoaded", async () => {
   await handleSpotifyReturn();
 
-  // Tubes Cursor Init
   const canvas = document.getElementById("canvas");
+
   const app = TubesCursor(canvas, {
     tubes: {
       colors: ["#f967fb", "#53bc28", "#6958d5"],
@@ -170,33 +233,36 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Buttons
   const connectBtn = document.getElementById("connect");
   const playBtn = document.getElementById("play");
 
   connectBtn.onclick = redirectToSpotifyAuth;
 
   playBtn.onclick = async () => {
-    if (!spotifyDeviceId) return alert("Device not ready yet.");
+    if (!accessToken) return alert("No access token yet.");
+    if (!spotifyDeviceId) return alert("Player not ready, try again.");
 
-    await fetch("https://api.spotify.com/v1/me/player/play?device_id=" + spotifyDeviceId, {
-      method: "PUT",
-      headers: {
-        Authorization: "Bearer " + accessToken,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        uris: ["spotify:track:1Iq8oo9XkmmvCe2zCH8asQ"]
-      })
-    });
+    await fetch(
+      "https://api.spotify.com/v1/me/player/play?device_id=" + spotifyDeviceId,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: "Bearer " + accessToken,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          uris: ["spotify:track:1Iq8oo9XkmmvCe2zCH8asQ"]
+        })
+      }
+    );
 
     startAudioReactive(app);
   };
 });
 
-/* -----------------------------------------------------
-   8. Audio → Cursor Visuals
------------------------------------------------------ */
+/*****************************************************
+ * 9. AUDIO REACTIVE VISUALIZER
+ *****************************************************/
 let audioCtx, analyser, freqData;
 
 function startAudioReactive(app) {
@@ -205,18 +271,18 @@ function startAudioReactive(app) {
   analyser.fftSize = 1024;
   freqData = new Uint8Array(analyser.frequencyBinCount);
 
-  // Wait for Spotify's hidden audio element
   const wait = setInterval(() => {
     const audio = document.querySelector("audio");
     if (!audio) return;
 
     clearInterval(wait);
+
     const src = audioCtx.createMediaElementSource(audio);
     src.connect(analyser);
     analyser.connect(audioCtx.destination);
 
     animate();
-  }, 200);
+  }, 250);
 
   function animate() {
     requestAnimationFrame(animate);
@@ -239,12 +305,18 @@ function avg(arr) {
 </head>
 <body>
 
+<img id="profile">
+
 <div id="app">
   <canvas id="canvas"></canvas>
+
   <div class="hero">
     <h1>Spotify</h1>
     <h2>Musical Cursor</h2>
-    <a target="_blank" href="https://github.com/zen-dts/spoti-cursor">Designed by Luminesco</a>
+
+    <a target="_blank" href="https://github.com/zen-dts/spoti-cursor">
+      Designed by Luminesco
+    </a>
 
     <button id="connect">Connect Spotify</button>
     <button id="play" disabled>Play Song</button>
