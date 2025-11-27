@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spotify Reactive Tubes Cursor</title>
+
+<style>
+  body, html, #app {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  body { touch-action: none; }
+
+  #app {
+    height: 100%;
+    font-family: "Montserrat", serif;
+  }
+
+  #app a {
+    text-decoration: none;
+    color: #fff;
+  }
+
+  .hero {
+    position: relative;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  h1, h2, p {
+    margin: 0;
+    padding: 0;
+    color: white;
+    text-shadow: 0 0 20px rgba(0, 0, 0, 1);
+    line-height: 100%;
+    user-select: none;
+  }
+
+  h1 { font-size: 80px; font-weight: 700; text-transform: uppercase; }
+  h2 { font-size: 60px; font-weight: 500; text-transform: uppercase; }
+
+  #canvas {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    overflow: hidden;
+  }
+
+  button {
+    padding: 12px 26px;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 8px;
+    color: #fff;
+    font-size: 16px;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    transition: 0.2s;
+  }
+
+  button:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  button:hover:not(:disabled) {
+    background: rgba(255,255,255,0.3);
+  }
+</style>
+
+<!-- Spotify SDK -->
+<script src="https://sdk.scdn.co/spotify-player.js"></script>
+
+<!-- ThreeJS TubesCursor -->
+<script type="module">
+import TubesCursor from "https://cdn.jsdelivr.net/npm/threejs-components@0.0.19/build/cursors/tubes1.min.js";
+
+let accessToken = null;
+let player = null;
+
+const CLIENT_ID = "REPLACE_WITH_YOUR_CLIENT_ID";  // <-- insert your ID
+const REDIRECT_URI = window.location.href;
+
+window.onSpotifyWebPlaybackSDKReady = () => {};
+
+window.addEventListener("DOMContentLoaded", () => {
+  const canvas = document.getElementById("canvas");
+
+  const app = TubesCursor(canvas, {
+    tubes: {
+      colors: ["#f967fb", "#53bc28", "#6958d5"],
+      lights: {
+        intensity: 200,
+        colors: ["#83f36e", "#fe8a2e", "#ff008a", "#60aed5"]
+      }
+    }
+  });
+
+  const connectBtn = document.getElementById("connect");
+  const playBtn = document.getElementById("play");
+
+  connectBtn.onclick = () => {
+    const scope = "streaming user-read-email user-read-private";
+    const authUrl = 
+      `https://accounts.spotify.com/authorize?response_type=token` +
+      `&client_id=${CLIENT_ID}` +
+      `&scope=${encodeURIComponent(scope)}` +
+      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+
+    window.location = authUrl;
+  };
+
+  if (window.location.hash.includes("access_token")) {
+    accessToken = window.location.hash.split("=")[1].split("&")[0];
+    connectBtn.disabled = true;
+    playBtn.disabled = false;
+  }
+
+  window.onSpotifyWebPlaybackSDKReady = () => {
+    player = new Spotify.Player({
+      name: "TubesCursorPlayer",
+      getOAuthToken: cb => cb(accessToken),
+      volume: 0.7
+    });
+
+    player.connect();
+
+    playBtn.onclick = async () => {
+      await fetch("https://api.spotify.com/v1/me/player/play", {
+        method: "PUT",
+        body: JSON.stringify({
+          uris: ["spotify:track:1Iq8oo9XkmmvCe2zCH8asQ"]
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+
+      startAudio();
+    };
+  };
+
+  let audioCtx, analyser, freqData;
+
+  function startAudio() {
+    if (audioCtx) return;
+
+    audioCtx = new AudioContext();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+
+    freqData = new Uint8Array(analyser.frequencyBinCount);
+
+    const audio = document.querySelector("audio");
+    const source = audioCtx.createMediaElementSource(audio);
+    source.connect(analyser);
+    analyser.connect(audioCtx.destination);
+
+    animate();
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    analyser.getByteFrequencyData(freqData);
+
+    const bass = avg(freqData.slice(0, 40));
+    const mids = avg(freqData.slice(40, 200));
+    const highs = avg(freqData.slice(200, 512));
+
+    app.tubes.setSize(1 + bass * 0.01);
+    app.tubes.setSpeed(0.5 + mids * 0.005);
+    app.tubes.setLightsIntensity(100 + highs);
+  }
+
+  function avg(arr) {
+    return arr.reduce((a, b) => a + b, 0) / arr.length;
+  }
+});
+</script>
+
+</head>
+<body>
+
+<div id="app">
+  <canvas id="canvas"></canvas>
+  <div class="hero">
+    <h1>Tubes</h1>
+    <h2>Cursor</h2>
+
+    <button id="connect">Connect Spotify</button>
+    <button id="play" disabled>Play Song</button>
+  </div>
+</div>
+
+</body>
+</html>
